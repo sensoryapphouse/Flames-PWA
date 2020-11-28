@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Sensory Flames</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="images/apple-touch-icon-iphone-60x60.png">
+<link rel="apple-touch-icon" sizes="60x60" href="images/apple-touch-icon-ipad-76x76.png">
+<link rel="apple-touch-icon" sizes="114x114" href="images/apple-touch-icon-iphone-retina-120x120.png">
+<link rel="apple-touch-icon" sizes="144x144" href="images/apple-touch-icon-ipad-retina-152x152.png">
+<link href="css/index.css" rel="stylesheet"/>
+<link rel="shortcut icon" href="images/favicon.ico" type="image/x-icon">
+<link rel="icon" href="images/favicon.ico" type="image/x-icon">
+<script type="text/javascript" src="glMatrix-0.9.5.min.js"></script>
+<script type="text/javascript" src="webgl-utils.js"></script>
+<script type="text/javascript" src="main.js"></script>
+
+<script id="shader-1-fs" type="f">
+    precision highp float;
+    varying vec2 vTextureCoord;
+ //   uniform sampler2D uSampler;
+    uniform vec2 resolution;
+    uniform int index;
+    uniform float time;
+    uniform float Param1;
+    uniform float Param2;
+    uniform float Param3;
+float tm = time;
+vec3 mod289(vec3 x) {
+	return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 mod289(vec4 x) {
+	return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec4 permute(vec4 x) {
+		 return mod289(((x*34.0)+1.0)*x);
+}
+
+vec4 taylorInvSqrt(vec4 r)
+{
+	return 1.79284291400159 - 0.85373472095314 * r;
+}
+
+float snoise(vec3 v)
+	{ 
+	const vec2	C = vec2(1.0/6.0, 1.0/3.0) ;
+	const vec4	D = vec4(0.0, 0.5, 1.0, 2.0);
+
+// First corner
+	vec3 i	= floor(v + dot(v, C.yyy) );
+	vec3 x0 =	 v - i + dot(i, C.xxx) ;
+
+// Other corners
+	vec3 g = step(x0.yzx, x0.xyz);
+	vec3 l = 1.0 - g;
+	vec3 i1 = min( g.xyz, l.zxy );
+	vec3 i2 = max( g.xyz, l.zxy );
+
+	//	 x0 = x0 - 0.0 + 0.0 * C.xxx;
+	//	 x1 = x0 - i1	+ 1.0 * C.xxx;
+	//	 x2 = x0 - i2	+ 2.0 * C.xxx;
+	//	 x3 = x0 - 1.0 + 3.0 * C.xxx;
+	vec3 x1 = x0 - i1 + C.xxx;
+	vec3 x2 = x0 - i2 + C.yyy; // 2.0*C.x = 1/3 = C.y
+	vec3 x3 = x0 - D.yyy;			// -1.0+3.0*C.x = -0.5 = -D.y
+
+// Permutations
+	i = mod289(i); 
+	vec4 p = permute( permute( permute( 
+						 i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+					 + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+					 + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+
+// Gradients: 7x7 points over a square, mapped onto an octahedron.
+// The ring size 17*17 = 289 is close to a multiple of 49 (49*6 = 294)
+	float n_ = 0.142857142857; // 1.0/7.0
+	vec3	ns = n_ * D.wyz - D.xzx;
+
+	vec4 j = p - 49.0 * floor(p * ns.z * ns.z);	//	mod(p,7*7)
+
+	vec4 x_ = floor(j * ns.z);
+	vec4 y_ = floor(j - 7.0 * x_ );		// mod(j,N)
+
+	vec4 x = x_ *ns.x + ns.yyyy;
+	vec4 y = y_ *ns.x + ns.yyyy;
+	vec4 h = 1.0 - abs(x) - abs(y);
+
+	vec4 b0 = vec4( x.xy, y.xy );
+	vec4 b1 = vec4( x.zw, y.zw );
+
+	//vec4 s0 = vec4(lessThan(b0,0.0))*2.0 - 1.0;
+	//vec4 s1 = vec4(lessThan(b1,0.0))*2.0 - 1.0;
+	vec4 s0 = floor(b0)*2.0 + 1.0;
+	vec4 s1 = floor(b1)*2.0 + 1.0;
+	vec4 sh = -step(h, vec4(0.0));
+
+	vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+	vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+
+	vec3 p0 = vec3(a0.xy,h.x);vec3 p1 = vec3(a0.zw,h.y);vec3 p2 = vec3(a1.xy,h.z);vec3 p3 = vec3(a1.zw,h.w);
+	//vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+	vec4 norm = inversesqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+	p0 *= norm.x;p1 *= norm.y;p2 *= norm.z;	p3 *= norm.w;
+
+	vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+	m = m * m;
+	return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
+	}
+
+//////////////////////////////////////////////////////////////
+
+// PRNG
+// From https://www.shadertoy.com/view/4djSRW
+float prng(in vec2 seed) {
+	seed = fract (seed * vec2 (5.3983, 5.4427));
+	seed += dot (seed.yx, seed.xy + vec2 (21.5351, 14.3137));
+	return fract (seed.x * seed.y * 95.4337);
+}
+
+//////////////////////////////////////////////////////////////
+
+float PI = 3.1415926535897932384626433832795;
+
+float noiseStack(vec3 pos,int octaves,float falloff){
+	float noise = snoise(vec3(pos));
+	float off = 1.0;
+	if (octaves>1) {
+		pos *= 2.0;
+		off *= falloff;
+		noise = (1.0-off)*noise + off*snoise(vec3(pos));
+	}
+	if (octaves>2) {
+		pos *= 2.0;
+		off *= falloff;
+		noise = (1.0-off)*noise + off*snoise(vec3(pos));
+	}
+	if (octaves>3) {
+		pos *= 2.0;
+		off *= falloff;
+		noise = (1.0-off)*noise + off*snoise(vec3(pos));
+	}
+	return (1.0+noise)/2.0;
+}
+
+vec2 noiseStackUV(vec3 pos,int octaves,float falloff,float diff){
+	float displaceA = noiseStack(pos,octaves,falloff);
+	float displaceB = noiseStack(pos+vec3(3984.293,423.21,5235.19),octaves,falloff);
+	return vec2(displaceA,displaceB);
+}
+
+void main(  ) {
+	tm = 2.*tm/Param3;
+	vec2 offset = vec2(0.0, 0.0);
+
+	float count = 1.; // 2. gives two flames
+	if (Param2 == 2. || Param2 == 4.)
+	count = 2.;
+	vec2 gl2 = gl_FragCoord.xy;
+	gl2.y /= 2.1;
+	float xpart = count*gl2.x/resolution.x;
+	if (Param2 > 2.) {
+	if (gl2.y > resolution.y/4.)
+		gl2.y = resolution.y/2. - gl2.y;
+	gl2.y = resolution.y/4. - gl2.y;
+	}	
+	float ypart = gl2.y/resolution.y;
+	if (xpart > 2.)
+		xpart -= 2.0;
+	if (xpart > 1.0)
+		xpart -= 1.0;
+	//
+	float clip = 260.0; // XXX Height of flames
+	if (Param1 == 2. )
+		clip = 50.;
+	if (Param1 == 3.)
+		clip = 100.;
+	if (Param1 == 4.)
+		clip = 200.;
+	float yoffset = 0.; // Ofset for bottom of flames
+	float ypartClip = gl2.y/clip - yoffset;
+	float ypartClippedFalloff = clamp(2.0-ypartClip,0.0,1.0);
+	float ypartClipped = min(ypartClip,1.0);
+	float ypartClippedn = 1.0-ypartClipped;
+	//
+	float xfuel = 1.0-abs(2.0*xpart-1.0);//pow(1.0-abs(2.0*xpart-1.0),0.5);
+	//
+	float timeSpeed = 0.5;
+	float realTime = timeSpeed*tm;
+	//
+	vec2 coordScaled = 0.01*gl2.xy - 0.02*vec2(offset.x,0.0);
+	vec3 position = vec3(coordScaled,0.0) + vec3(1223.0,6434.0,8425.0);
+	vec3 flow = vec3(4.1*(0.5-xpart)*pow(ypartClippedn,4.0),-2.0*xfuel*pow(ypartClippedn,64.0),0.0);
+	vec3 timing = realTime*vec3(0.0,-1.7,1.1) + flow;
+	//
+	vec3 displacePos = vec3(1.0,0.5,1.0)*2.4*position+realTime*vec3(0.01,-0.7,1.3);
+	vec3 displace3 = vec3(noiseStackUV(displacePos,2,0.4,0.1),0.0);
+	//
+	vec3 noiseCoord = (vec3(2.0,1.0,1.0)*position+timing+0.4*displace3)/1.0;
+	float noise = noiseStack(noiseCoord,3,0.4);
+	//
+	float flames = pow(ypartClipped,0.3*xfuel)*pow(noise,xfuel);
+	//
+	float f = ypartClippedFalloff*pow(1.0-flames*flames*flames,8.0);
+	float fff = f*f*f;
+	vec3 fire = 1.5*vec3(f, fff, fff*fff);
+	//
+	gl_FragColor = vec4(fire.xyz,1.0);
+}
+
+</script>
+
+
+<script id="shader-vs" type="v">
+    attribute vec3 aVertexPosition;
+    attribute vec2 aTextureCoord;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+//    varying vec2 vTextureCoord;
+
+    void main(void) {
+        gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+ //       vTextureCoord = aTextureCoord;
+    }
+</script>
+
+<script id="shader-2-fs" type="f">
+    precision highp float;
+    uniform vec2 resolution;
+    uniform vec2 mouse;
+    uniform int index;
+    uniform float time;
+    uniform float Param1;
+    uniform float Param2;
+	uniform float Param3;
+	float tm = time;
+vec2 cmul(const vec2 c1, const vec2 c2)
+{
+	return vec2(
+		c1.x * c2.x - c1.y * c2.y,
+		c1.x * c2.y + c1.y * c2.x
+	);
+}
+void main( void )
+{
+	tm = 3.*tm/Param3;
+	vec2 uPos = ( gl_FragCoord.xy / resolution.y );//normalize wrt y axis
+
+	uPos -= vec2((0.5*resolution.x/resolution.y), 0.5);//shift origin to center
+	uPos *= 3.5;
+
+	if (Param2 == 3. || Param2 == 4.) {
+        if (uPos.x > .0) {
+            uPos.x = 2.*uPos.x - 1.;
+        }
+        else
+        {
+            uPos.x = -1. - uPos.x*2. ;
+        }
+    }
+    if (Param2 == 2. || Param2 == 4.) {
+            if (uPos.y > .0) {
+                uPos.y = 2.*uPos.y - 1.;
+            }
+            else
+            {
+                uPos.y = -1. - uPos.y*2. ;
+            }
+
+	}
+	
+		
+	vec3 color = vec3(0.0);
+	float vertColor = 0.0;
+	for( float i = 0.0; i < 4.0; ++i )
+	{
+		float t = tm *(0.1) + 1.0;
+	
+		vec2 origPos = uPos;
+		uPos.y += sin( uPos.y/2.0+uPos.x/2.0*(i/0.5+1.0)+t ) * 1.1;
+		uPos.x += sin( uPos.y+uPos.x*(i/0.5+1.0)+t ) * (Param1-1.);;
+		
+		uPos =  cmul(origPos, uPos);
+		
+		float fTemp = abs(1.0 / uPos.y);
+		vertColor += fTemp;
+		color += vec3( fTemp*i/5.0, fTemp*i/40.0, pow(fTemp,i/24.0)/64.0 );
+		if (Param3 > 1.)
+			color += vec3( fTemp*i/2.0, 0.0, 0.0 );
+	}
+	
+	vec4 color_final = vec4(color, 1.0);
+	gl_FragColor = color_final;
+}
+</script>
+<script id="shader-3-fs" type="f">
+    precision highp float;
+    uniform vec2 resolution;
+    uniform vec2 mouse;
+    uniform int index;
+    uniform float time;
+    uniform float Param1;
+    uniform float Param2;
+    uniform float Param3;
+float tm = time;
+#define pi 3.14159265
+#define R(p, a) p=cos(a)*p+sin(a)*vec2(p.y, -p.x)
+#define hsv(h,s,v) mix(vec3(1.), clamp((abs(fract(h+vec3(3., 2., 1.)/3.)*6.-3.)-1.), 0., 1.), s)*v
+
+float pn(vec3 p) {
+   vec3 i = floor(p);
+   vec4 a = dot(i, vec3(1., 57., 21.)) + vec4(0., 57., 21., 78.);
+   vec3 f = cos((p-i)*pi)*(-.5) + .5;
+   a = mix(sin(cos(a)*a), sin(cos(1.+a)*(1.+a)), f.x);
+   a.xy = mix(a.xz, a.yw, f.y);
+   return mix(a.x, a.y, f.z);
+}
+
+float fpn(vec3 p) {
+	if (Param1 == 4.)
+   return pn(p*.06125)*.5 + pn(p*.125)*.25 + pn(p*.25)*.0125;
+		else
+   return pn(p*.06125)*.5 + pn(p*.125)*.25 + pn(p*.25)*.125;
+}
+
+vec3 n1 = vec3(1.000,0.000,0.000);
+vec3 n2 = vec3(0.000,1.000,0.000);
+vec3 n3 = vec3(0.000,0.000,1.000);
+vec3 n4 = vec3(0.577,0.577,0.577);
+vec3 n5 = vec3(-0.577,0.577,0.577);
+vec3 n6 = vec3(0.577,-0.577,0.577);
+vec3 n7 = vec3(0.577,0.577,-0.577);
+vec3 n8 = vec3(0.000,0.357,0.934);
+vec3 n9 = vec3(0.000,-0.357,0.934);
+vec3 n10 = vec3(0.934,0.000,0.357);
+vec3 n11 = vec3(-0.934,0.000,0.357);
+vec3 n12 = vec3(0.357,0.934,0.000);
+vec3 n13 = vec3(-0.357,0.934,0.000);
+vec3 n14 = vec3(0.000,0.851,0.526);
+vec3 n15 = vec3(0.000,-0.851,0.526);
+vec3 n16 = vec3(0.526,0.000,0.851);
+vec3 n17 = vec3(-0.526,0.000,0.851);
+vec3 n18 = vec3(0.851,0.526,0.000);
+vec3 n19 = vec3(-0.851,0.526,0.000);
+
+float spikeball(vec3 p) {
+   vec3 q=p;
+   p = normalize(p);
+   vec4 b = max(max(max(
+      abs(vec4(dot(p,n16), dot(p,n17),dot(p, n18), dot(p,n19))),
+      abs(vec4(dot(p,n12), dot(p,n13), dot(p, n14), dot(p,n15)))),
+      abs(vec4(dot(p,n8), dot(p,n9), dot(p, n10), dot(p,n11)))),
+      abs(vec4(dot(p,n4), dot(p,n5), dot(p, n6), dot(p,n7))));
+   b.xy = max(b.xy, b.zw);
+   b.x = pow(max(b.x, b.y), 140.);
+   return length(q)-2.5*pow(1.5,b.x*(1.-mix(.3, 1., sin(tm*1.)*.15+.85)*b.x));
+}
+
+float f(vec3 p) {
+   p.z += 6.;
+   R(p.xy, 0.005*tm);
+   R(p.xz, 0.13*tm);
+   return spikeball(p) +  fpn(p*50.+tm*15.) * 0.45;
+}
+
+void main(void)
+{  
+	tm /= Param3;	
+   // p: position on the ray
+   // d: direction of the ray
+   vec3 p = vec3(0.,0.,3.);
+   vec3 d = vec3((gl_FragCoord.xy/(0.5*resolution)-1.)*vec2(1.2,1.0), 0.) - p;
+   if (Param2 == 3. || Param2 == 4.) {
+	if (d.x > .0) {
+		d.x = 2.*d.x - 1.;
+	}
+	else
+	{
+		d.x = -1. - d.x*2. ;
+	}
+}
+if (Param2 == 2. || Param2 == 4.) {
+		if (d.y > .0) {
+			d.y = 2.*d.y - 1.;
+		}
+		else
+		{
+			d.y = -1. - d.y*2. ;
+		}
+
+}
+   d = normalize(d); 
+   
+   // ld, td: local, total density 
+   // w: weighting factor
+   float ld, td= 0.;
+   float w;
+   
+   // total color
+   vec3 tc = vec3(0.);
+   
+   // i: 0 <= i <= 1.
+   // r: length of the ray
+   // l: distance function
+   float i, r, l, b=0.;
+
+   // rm loop
+   for (float i=0.; (i<1.); i+=1./12.) {
+	   if(!((i<1.) && (l>=0.001*r) && (r < 50.)&& (td < .95)))
+		   break;
+      // evaluate distance function
+      l = f(p) * (0.5+Param1/10.);
+      
+      // check whether we are close enough
+      if (l < .01) {
+        // compute local density and weighting factor 
+        ld = 0.01 - l;
+        w = (1. - td) * ld;   
+        
+        // accumulate color and density
+        tc += w;
+        td += w;
+      }
+      td += 1./128.;
+      
+      // enforce minimum stepsize
+      l = max(l, 0.05);
+      
+      // step forward
+      p += l*d;
+      r += l;
+   }     
+      
+   gl_FragColor = vec4(tc.x+td*2., ld*3., 0, 1.0);
+}
+</script>
+
+<script id="shader-4-fs" type="f">
+    precision highp float;
+//    varying vec2 vTextureCoord;
+//    uniform sampler2D uSampler;
+    uniform vec2 resolution;
+    uniform vec2 mouse;
+    uniform int index;
+    uniform float time;
+    uniform float Param1;
+    uniform float Param2;
+	uniform float Param3;
+	float tm = time;
+		#define LINEAR_INTERPOLATION
+
+		#define PI 3.14159265
+		
+		float permutation(float index) {
+			return mod(index * index, 257.0);
+		}
+		
+		vec3 gradient(float index) {
+			
+			index = mod(index * index, 251.0);
+			
+			float angleAroundZ = mod(index, 16.0) * (2.0 * PI / 16.0);
+			float angleAroundY = floor(index / 16.0) * (2.0 * PI / 16.0);
+			
+			vec3 gradient = vec3(cos(angleAroundZ), sin(angleAroundZ), 0.0);
+			vec3 rotatedGradient;
+			rotatedGradient.x = gradient.x * cos(angleAroundY);
+			rotatedGradient.y = gradient.y;
+			rotatedGradient.z = gradient.x * sin(angleAroundY);
+		
+			return rotatedGradient;
+		}
+		 
+		float hermit3D(vec3 position) {
+			vec3 square = position * position;
+			vec3 cube = square * position;
+			return (3.0*square.x - 2.0*cube.x) * (3.0*square.y - 2.0*cube.y) * (3.0*square.z - 2.0*cube.z);
+		}
+		
+		float perlinNoise3D(int gridWidth, int gridHeight, int gridDepth, vec3 position) {
+		
+			// Takes input position in the interval [0, 1] in all axes, outputs noise in the range [0, 1].
+			vec3 gridDimensions = vec3(gridWidth, gridHeight, gridDepth);
+			position *= gridDimensions;
+				
+			// Get corners,
+			vec3 lowerBoundPosition = floor(position);
+		
+			// Calculate gradient values!
+			float gradientValues[8];
+			for (float z=0.0; z<2.0; z++) {
+				for (float y=0.0; y<2.0; y++) {
+					for (float x=0.0; x<2.0; x++) {
+						vec3 currentPointPosition = lowerBoundPosition + vec3(x, y, z);
+						
+						vec3 displacementVector = (currentPointPosition - position);
+						vec3 gradientVector = gradient(mod(currentPointPosition.x + permutation(mod(currentPointPosition.y + permutation(currentPointPosition.z), 256.0)), 256.0));
+						
+						gradientValues[int((z*4.0) + (y*2.0) + x)] = (0.0 + dot(gradientVector, displacementVector)) * 2.0;
+					}
+				}
+			}
+			
+			#ifdef LINEAR_INTERPOLATION
+			
+			// Interpolate linearly (for simplicity),
+			vec3 interpolationRatio = position - lowerBoundPosition;
+			float nearPlaneNoise = mix(
+				mix(gradientValues[0], gradientValues[1], interpolationRatio.x),
+				mix(gradientValues[2], gradientValues[3], interpolationRatio.x),
+				interpolationRatio.y);
+			float farPlaneNoise = mix(
+				mix(gradientValues[4], gradientValues[5], interpolationRatio.x),
+				mix(gradientValues[6], gradientValues[7], interpolationRatio.x),
+				interpolationRatio.y);
+			
+			float finalNoise = mix(nearPlaneNoise, farPlaneNoise, interpolationRatio.z);
+			
+			#else
+			
+			// Interpolate using Hermit,
+			vec3 interpolationRatio = position - lowerBoundPosition;
+			float finalNoise = 0.0;
+			finalNoise += gradientValues[7] * hermit3D(interpolationRatio);
+			finalNoise += gradientValues[6] * hermit3D(vec3(1.0 - interpolationRatio.x,       interpolationRatio.y,       interpolationRatio.z));
+			finalNoise += gradientValues[5] * hermit3D(vec3(      interpolationRatio.x, 1.0 - interpolationRatio.y,       interpolationRatio.z));
+			finalNoise += gradientValues[4] * hermit3D(vec3(1.0 - interpolationRatio.x, 1.0 - interpolationRatio.y,       interpolationRatio.z));
+		
+			finalNoise += gradientValues[3] * hermit3D(vec3(      interpolationRatio.x,       interpolationRatio.y, 1.0 - interpolationRatio.z));
+			finalNoise += gradientValues[2] * hermit3D(vec3(1.0 - interpolationRatio.x,       interpolationRatio.y, 1.0 - interpolationRatio.z));
+			finalNoise += gradientValues[1] * hermit3D(vec3(      interpolationRatio.x, 1.0 - interpolationRatio.y, 1.0 - interpolationRatio.z));
+			finalNoise += gradientValues[0] * hermit3D(vec3(1.0 - interpolationRatio.x, 1.0 - interpolationRatio.y, 1.0 - interpolationRatio.z));
+			
+			#endif
+				
+			return finalNoise;
+		}
+		
+		//////////////////
+		// Scene
+		//////////////////
+		
+		const vec3 eyePosition = vec3(0.0, 0.0, -2.0);
+		
+		vec3 sphereCenter = vec3(0.0, 0.0, 0.5);
+		const float sphereRadius = 0.25;
+		
+		float intersectSphere(vec3 rayVector, vec3 pointOnRay, vec3 sphereCenter, float sphereRadius) {
+			
+			vec3 sphereCenterToRayPoint = pointOnRay - sphereCenter;
+			
+			float a = dot(rayVector, rayVector);
+			float b = 2.0*dot(rayVector, sphereCenterToRayPoint);
+			float c = dot(sphereCenterToRayPoint, sphereCenterToRayPoint) - sphereRadius*sphereRadius;
+			
+			float descriminant = b*b - 4.0*a*c;
+			if (descriminant < 0.0) return -1.0;  
+			
+			float t = (-b - sqrt(descriminant)) / (2.0*a);
+			
+			return t;
+		}
+		
+		vec4 light(vec3 pointPosition, vec3 pointNormal, vec3 lightPostiion, vec4 ambientColor, vec4 diffuseColor, vec4 specularColor, float shininess) {  
+			
+			vec3 L = normalize(lightPostiion - pointPosition);   
+			vec3 E = normalize(eyePosition - pointPosition); 
+			vec3 R = normalize(-reflect(L, pointNormal));  
+		 
+			// Calculate ambient term,
+			vec4 ambient = ambientColor;
+		
+			// Calculate diffuse term,
+			vec4 diffuse = diffuseColor * max(dot(pointNormal,L), 0.0);
+			diffuse = clamp(diffuse, 0.0, 1.0);     
+		
+			// Calculate specular term,
+			vec4 specular = specularColor * pow(max(dot(R,E),0.0),0.3*shininess);
+			specular = clamp(specular, 0.0, 1.0); 
+		
+			return ambient + diffuse + specular;
+		}
+		
+		void main() {
+			tm /= Param3;
+			// Normalize coordinates,
+			vec3 pointPosition = vec3((gl_FragCoord.xy / resolution)*2.0 - 1.0, 0.0);
+
+			if (Param2 == 3. || Param2 == 4.) {
+				if (pointPosition.x > .0) {
+					pointPosition.x = 2.*pointPosition.x - 1.;
+				}
+				else
+				{
+					pointPosition.x = -1. - pointPosition.x*2. ;
+				}
+			}
+			if (Param2 == 2. || Param2 == 4.) {
+					if (pointPosition.y > .0) {
+						pointPosition.y = 2.*pointPosition.y - 1.;
+					}
+					else
+					{
+						pointPosition.y = -1. - pointPosition.y*2. ;
+					}
+			
+			}
+
+			pointPosition*=0.4;
+				
+			// Ray cast,
+			vec3 rayVector = pointPosition - eyePosition;
+			float t = intersectSphere(rayVector, eyePosition, sphereCenter, sphereRadius);
+		
+			// Light,
+			vec3 lightPosition = vec3(0.25, 0.25, 0.0);
+			vec4 lightColor;
+			vec4 color;
+		
+			float noise = 0.0;
+			vec3 noisePoint = vec3(pointPosition.xy, pointPosition.z-(tm*0.06));
+			noise +=         abs(perlinNoise3D(4, 4, 4, noisePoint));
+			noise += 0.500 * abs(perlinNoise3D(8, 8, 8, noisePoint));
+			noise += 0.250 * abs(perlinNoise3D(16, 16, 16, noisePoint));
+			noise += 0.125 * abs(perlinNoise3D(32, 32, 32, noisePoint));
+			noise += 0.0625 * abs(perlinNoise3D(64, 64, 64, noisePoint));
+					
+			if (Param1 != 3.) {
+				noise += abs(perlinNoise3D(4, 4, 4, noisePoint));
+				noise += 0.500 * abs(perlinNoise3D(8, 8, 8, noisePoint));
+				noise += 0.250 * abs(perlinNoise3D(16, 16, 16, noisePoint));
+			}
+			noise += 0.125 * abs(perlinNoise3D(32, 32, 32, noisePoint));
+			noise += 0.0625 * abs(perlinNoise3D(64, 64, 64, noisePoint));
+					
+			float radius = length(pointPosition) - 1.*sphereRadius;
+			if (Param1 == 2. || Param1 == 3.)
+				radius /= sphereRadius * 0.4;
+			else if (Param1 == 1.)	
+				radius /= sphereRadius * 0.9;		
+			float phase = clamp(radius + 1.0*noise, 0.0, 0.5*PI);
+			radius = sin(phase);
+			color = mix(vec4(0.8, 0.55, 0.2, 1.0), vec4(1.0, 0.1, 0.0, 1.0), radius);
+			color.rgb *= 1.0 - radius;
+					gl_FragColor = color*2.;
+		
+		}
+		
+</script>
+<script id="shader-5-fs" type="f">
+//http://glslsandbox.com/e#39956.0
+precision highp float;
+//    varying vec2 vTextureCoord;
+//    uniform sampler2D uSampler;
+uniform vec2 resolution;
+uniform vec2 mouse;
+uniform int index;
+uniform float time;
+uniform float Param1;
+uniform float Param2;
+uniform float Param3;
+float tm = time;
+float snoise(vec3 uv, float res) 
+ { 
+     const vec3 s = vec3(1e2, 1e2, 1e3); 
+
+     uv *= res; 
+
+     vec3 uv0 = floor(mod(uv, res))*s; 
+     vec3 uv1 = floor(mod(uv+vec3(1.), res))*s; 
+
+     vec3 f = fract(uv); f = f*f*(3.0-2.0*f); 
+
+     vec4 v = vec4(uv0.x+uv0.y+uv0.z, uv1.x+uv0.y+uv0.z, 
+     uv0.x+uv1.y+uv0.z, uv1.x+uv1.y+uv0.z); 
+
+     vec4 r = fract(sin(v*1e-1)*1e3); 
+     float r0 = mix(mix(r.x, r.y, f.x), mix(r.z, r.w, f.x), f.y); 
+
+     r = fract(sin((v + uv1.z - uv0.z)*1e-1)*1e3); 
+     float r1 = mix(mix(r.x, r.y, f.x), mix(r.z, r.w, f.x), f.y); 
+
+     return mix(r0, r1, f.z)*1.-1.; 
+ } 
+
+ void main( void ) { 
+	tm /= Param3;
+	vec2 p = -.5 + gl_FragCoord.xy / resolution.xy; 
+
+	if (Param2 == 3. || Param2 == 4.) {
+		if (p.x > .0) 
+			p.x = 2.*p.x - .5;
+		else
+			p.x = -.5 - p.x*2. ;
+	}
+	if (Param2 == 2. || Param2 == 4.) {
+			if (p.y > .0) 
+				p.y = 2.*p.y - .5;
+			else
+				p.y = -.5 - p.y*2. ;
+	}
+	p.x *= resolution.x/resolution.y; 
+	p*=vec2(.4,.5);
+
+	float color;
+	if (Param1 == 1. || Param1 == 3.)
+		color = 2. - (3.*length(2.*p)); 
+	else
+		color = 2.2 - (3.*length(2.*p)); 
+
+	vec3 coord;
+	if (Param1 > 2.)
+		coord = vec3(atan(p.x,p.y)/6.2832+.5, length(p)*.9, .2); 
+	else
+		coord = vec3(atan(p.x,p.y)/6.2832+.5, length(p)*.5, .5); 
+
+     for(int i = 1; i <= 2; i++) 
+     { 
+         float power = pow(3.0, float(i)); 
+				 color += (1.5 / power) * snoise(coord + vec3(0.,-tm*.05, tm*.01), power*8.); 
+				} 
+
+     gl_FragColor = vec4( color, pow(max(color,0.),2.)*0.4, pow(max(color,0.),1.)*0.15 , 1.0); 
+
+ } 
+</script>
+<script id="shader-6-fs" type="f">
+// http://glslsandbox.com/e#39611.1
+precision highp float;
+//    varying vec2 vTextureCoord;
+//    uniform sampler2D uSampler;
+uniform vec2 resolution;
+uniform vec2 mouse;
+uniform int index;
+uniform float time;
+uniform float Param1;
+uniform float Param2;
+uniform float Param3;
+#define MAX_ITER 2
+float tm = time;
+void main( void )
+{
+	tm /= Param3;
+    vec2 v_texCoord = gl_FragCoord.xy / resolution;
+		if (Param2 == 3. || Param2 == 4.) {
+			if (v_texCoord.y > 0.5)
+			v_texCoord.y = 1.0-v_texCoord.y;
+		}
+		if (Param2 == 2. || Param2 == 4.) {
+			if (v_texCoord.x > 0.5)
+			v_texCoord.x = 1.0-v_texCoord.x;
+		}
+	vec2 p =  v_texCoord * 9.0 - vec2(20.0);
+
+    vec2 i = p;
+    float c = 2.0;
+    float inten = .05;
+
+    for (int n = 0; n < MAX_ITER; n++)
+    {
+        float t = tm * (1.0 - (0.060 / float(n+1)));
+
+        i = p + vec2(cos(t - i.x) + sin(t + i.y),
+        sin(t - i.y) + cos(t + i.x));
+
+        c += 1.0/length(vec2(p.x / (sin(i.x+t)/inten),
+        p.y / (cos(i.y+t)/inten)));
+    }
+
+    c /= float(MAX_ITER);
+    c = 1.4 + Param1/10. - sqrt(c); // 1.5 & 1.6 & 1.65
+
+    vec4 texColor = vec4(0.32, 0.15, 0.02, 1.);
+
+    texColor.rgb *= (1.0 / (1.0 - (c + 0.35)));
+/*	if (texColor.r < 0.75) { // change dim colours
+	    texColor.gb /= 1.9;
+	    texColor.r /=1.2;
+	} */
+    gl_FragColor = texColor;
+}
+
+</script>
+<script id="shader-7-fs" type="f">
+// http://glslsandbox.com/e#38802.0
+precision highp float;
+//    varying vec2 vTextureCoord;
+//    uniform sampler2D uSampler;
+uniform vec2 resolution;
+uniform vec2 mouse;
+uniform int index;
+uniform float time;
+uniform float Param1;
+uniform float Param2;
+uniform float Param3;
+float tm = time;
+vec2 hash(vec2 p)
+{
+	p=vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.1)));
+	return -1.0+2.0*fract(sin(p)*43758.5453123);
+}
+
+float noise( in vec2 p )
+{
+	const float K1 = 0.366025404; // (sqrt(3)-1)/2;
+	const float K2 = 0.211324865; // (3-sqrt(3))/6;
+	vec2 i = floor( p + (p.x+p.y)*K1 );
+	vec2 a = p - i + (i.x+i.y)*K2;
+	vec2 o = (a.x>a.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
+	vec2 b = a - o + K2;
+	vec2 c = a - 1.0 + 2.0*K2;
+	vec3 h = max( 0.5-vec3(dot(a,a), dot(b,b), dot(c,c) ), 0.0 );
+	vec3 n = h*h*h*h*vec3( dot(a,hash(i+0.0)), dot(b,hash(i+o)), dot(c,hash(i+1.0)));
+	if (Param1 > 2.)
+		return dot( n, vec3(50.0) );
+	else
+		return dot( n, vec3(30.0) );
+}
+
+float fbm(vec2 uv)
+{
+	mat2 m = mat2( 1.6,  1.2, -1.2,  1.6 );
+	float f  = 0.5000*noise( uv ); uv = m*uv;
+//	f += 0.2500*noise( uv ); uv = m*uv;
+//	f += 0.1250*noise( uv ); uv = m*uv;
+//	f += 0.0625*noise( uv ); uv = m*uv;
+	f = 0.5 + 0.5*f; // comment out to make different
+	return f;
+}
+
+vec3 draw(vec2 pos)
+{
+	float _s = sign(pos.y) * (200.0+(tm*0.5));
+	pos.y=mod(abs(pos.y), 1.0);
+	pos.x += _s;
+  pos.y += 0.1; // make white band thinner
+	vec3 xx=vec3(fbm(pos-vec2(0.0,tm*0.45)));
+        float s=3.75;
+	float m=pow(xx.x, pos.y*s)+.5;
+	if (Param1 == 2. || Param1 ==4.)
+		m+= .1;
+	vec3 color;
+
+	if (Param1 > 2.)
+		color =vec3(m, 0.75*m*m, 0.3);
+	else
+		color =vec3(m, .75*m*m, 0.3*m*m*m*m*m);
+	return color;
+}
+
+void main( void ) {
+	tm = 2.*tm/Param3;
+	float fromBottom = 0.; // make 0 to go from bottom, 1 from middle, 2 to go from top
+	if (Param2 == 3.)
+		fromBottom = 1.;
+	else if (Param2 == 2.)
+		fromBottom = 2.*gl_FragCoord.x/resolution.x;
+	else if (Param2 == 4.)
+		fromBottom = 2.*(1.0-gl_FragCoord.x/resolution.x);
+	vec2 pos=(gl_FragCoord.xy/resolution.xy)*2.0-vec2(fromBottom);
+	if (Param2 == 4.)
+		pos.xy = pos.yx;
+	pos.y/=2.;
+	if (Param2 == 4.)
+		pos.x = gl_FragCoord.y/8.;// divide by 1., 2., 4., 8.
+	else
+		pos.x = gl_FragCoord.x/8.;// divide by 1., 2., 4., 8.
+	vec3 col = draw(pos);
+	gl_FragColor=vec4(col, 1.0);
+}
+
+</script>
+
+</head>
+<body>
+<div id="container">
+  <div id="main">
+    <canvas id="webgl-canvas"  style="border: none;" width="500" height="500"></canvas>
+    <splash class = "btn" enabled></splash>
+    <button class="btn" enabled></button>
+    <button1 class="btn" enabled></button1>
+    <button2 class="btn" enabled></button2>
+	<button3 class="btn" enabled></button3>
+    <audio id="audio" autobuffer="autobuffer" preload="auto">
+    <source src="plazma.mp3" type="audio/mp3" />
+    <source src="plazma.ogg" type="audio/ogg" />
+    <source src="plazma.aac" type="audio/aac" />
+    <audio id="audio1" autobuffer="autobuffer" preload="auto">
+    <source src="plazma1.mp3" type="audio/mp3" />
+    <source src="plazma1.ogg" type="audio/ogg" />
+    <source src="plazma1.aac" type="audio/aac" />
+    <audio id="audio2" autobuffer="autobuffer" preload="auto">
+    <source src="plazma2.mp3" type="audio/mp3" />
+    <source src="plazma2.ogg" type="audio/ogg" />
+    <source src="plazma2.aac" type="audio/aac" />
+</audio>
+    </div>
+  </div>
+</body>
+</html>
